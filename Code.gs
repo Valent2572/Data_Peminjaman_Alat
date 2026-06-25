@@ -2,6 +2,13 @@
  * Script ini menangani request POST yang masuk ke Web App.
  */
 function doPost(e) {
+  // CORS Headers Helper
+  var headers = {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type"
+  };
+
   try {
     var payload = JSON.parse(e.postData.contents);
     var action = payload.action || "pinjam"; 
@@ -10,7 +17,6 @@ function doPost(e) {
     var sheetPeminjaman = ss.getSheetByName("Data_Peminjaman");
     var sheetMahasiswa = ss.getSheetByName("Data_Mahasiswa");
     
-    // Pastikan sheet ada. Jika belum ada, buat baru dengan header lengkap
     if (!sheetPeminjaman) {
       sheetPeminjaman = ss.insertSheet("Data_Peminjaman");
       sheetPeminjaman.appendRow(["Timestamp Pinjam", "No Coin", "Nama Peminjam", "Kode Alat", "Status", "Timestamp Kembali"]);
@@ -22,8 +28,8 @@ function doPost(e) {
       var kodeAlat = payload.kode_alat;
       var status = "Dipinjam";
       
-      // Cari nama peminjam dari Data_Mahasiswa berdasarkan No Coin
-      var namaMhs = "Nama tidak ditemukan";
+      // Validasi Koin: Cari nama peminjam dari Data_Mahasiswa
+      var namaMhs = null;
       if (sheetMahasiswa) {
         var dataMhs = sheetMahasiswa.getDataRange().getValues();
         for (var i = 1; i < dataMhs.length; i++) {
@@ -34,8 +40,14 @@ function doPost(e) {
         }
       }
       
-      // Menambahkan data. Urutan kolom: 
-      // A: Timestamp Pinjam, B: No Coin, C: Nama Peminjam, D: Kode Alat, E: Status, F: Timestamp Kembali
+      // Jika koin tidak ditemukan, tolak peminjaman
+      if (!namaMhs) {
+        return ContentService.createTextOutput(JSON.stringify({
+          "status": "error", 
+          "message": "Koin tidak valid. Data mahasiswa tidak ditemukan."
+        })).setMimeType(ContentService.MimeType.JSON);
+      }
+      
       sheetPeminjaman.appendRow([timestamp, noCoin, namaMhs, kodeAlat, status, ""]);
       
       return ContentService.createTextOutput(JSON.stringify({
@@ -52,38 +64,28 @@ function doPost(e) {
       var data = sheetPeminjaman.getDataRange().getValues();
       var updated = false;
       
-      // Loop dari bawah ke atas (karena data terbaru ada di bawah)
-      for (var j = data.length - 1; j > 0; j--) {
-        // Kita gunakan asumsi urutan kolom:
-        // 0: Timestamp Pinjam, 1: No Coin, 2: Nama Peminjam, 3: Kode Alat, 4: Status, 5: Timestamp Kembali
-        var rowTime = data[j][0];
-        var rowCoin = data[j][1];
-        var rowKode = data[j][3];
-        var rowStatus = data[j][4];
+      if (data.length > 1) {
+        var sheetHeaders = data[0];
         
-        // Pengecekan ekstra untuk sheet lama yang kolomnya masih (Timestamp, No Coin, Kode Alat, Status)
-        // Kita cek panjang baris
-        if (data[0].indexOf("Nama Peminjam") === -1) {
-          // Format lama: 0: Timestamp, 1: No Coin, 2: Kode Alat, 3: Status
-          rowTime = data[j][0];
-          rowCoin = data[j][1];
-          rowKode = data[j][2];
-          rowStatus = data[j][3];
+        var colTime = sheetHeaders.indexOf("Timestamp Pinjam");
+        if (colTime === -1) colTime = sheetHeaders.indexOf("Timestamp");
+        if (colTime === -1) colTime = 0;
+        
+        var colCoin = sheetHeaders.indexOf("No Coin") !== -1 ? sheetHeaders.indexOf("No Coin") : 1;
+        var colKode = sheetHeaders.indexOf("Kode Alat") !== -1 ? sheetHeaders.indexOf("Kode Alat") : 3;
+        var colStatus = sheetHeaders.indexOf("Status") !== -1 ? sheetHeaders.indexOf("Status") : 4;
+        var colTimeKembali = sheetHeaders.indexOf("Timestamp Kembali");
+        if (colTimeKembali === -1) colTimeKembali = sheetHeaders.length; 
+        
+        for (var j = data.length - 1; j > 0; j--) {
+          var rowTime = data[j][colTime];
+          var rowCoin = data[j][colCoin];
+          var rowKode = data[j][colKode];
+          var rowStatus = data[j][colStatus];
           
           if (rowStatus === "Dipinjam" && rowCoin == noCoin && rowKode == kodeAlat && rowTime == timestampPinjam) {
-            sheetPeminjaman.getRange(j + 1, 4).setValue("Kembali");
-            // Set Timestamp kembali di kolom baru (misal F)
-            sheetPeminjaman.getRange(j + 1, 6).setValue(timestampKembali);
-            updated = true;
-            break;
-          }
-        } else {
-          // Format baru
-          if (rowStatus === "Dipinjam" && rowCoin == noCoin && rowKode == kodeAlat && rowTime == timestampPinjam) {
-            // Ubah Status di kolom E (indeks 5) menjadi Kembali
-            sheetPeminjaman.getRange(j + 1, 5).setValue("Kembali");
-            // Set Timestamp Kembali di kolom F (indeks 6)
-            sheetPeminjaman.getRange(j + 1, 6).setValue(timestampKembali);
+            sheetPeminjaman.getRange(j + 1, colStatus + 1).setValue("Kembali");
+            sheetPeminjaman.getRange(j + 1, colTimeKembali + 1).setValue(timestampKembali);
             updated = true;
             break;
           }
@@ -118,6 +120,7 @@ function doGet(e) {
   try {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var sheetPeminjaman = ss.getSheetByName("Data_Peminjaman");
+    var sheetMahasiswa = ss.getSheetByName("Data_Mahasiswa");
     
     if (!sheetPeminjaman) {
       return ContentService.createTextOutput(JSON.stringify({"status": "success", "data": []}))
@@ -128,28 +131,40 @@ function doGet(e) {
     var activeLoans = [];
     
     if (dataPeminjaman.length > 1) {
-      var isFormatLama = dataPeminjaman[0].indexOf("Nama Peminjam") === -1;
+      var sheetHeaders = dataPeminjaman[0];
       
-      // Ambil sheet Mahasiswa hanya untuk format lama yang nggak ada kolom Nama Peminjam
+      var colTime = sheetHeaders.indexOf("Timestamp Pinjam");
+      if (colTime === -1) colTime = sheetHeaders.indexOf("Timestamp");
+      if (colTime === -1) colTime = 0;
+      
+      var colCoin = sheetHeaders.indexOf("No Coin") !== -1 ? sheetHeaders.indexOf("No Coin") : 1;
+      var colKode = sheetHeaders.indexOf("Kode Alat") !== -1 ? sheetHeaders.indexOf("Kode Alat") : 3;
+      var colStatus = sheetHeaders.indexOf("Status") !== -1 ? sheetHeaders.indexOf("Status") : 4;
+      
+      var colNama = sheetHeaders.findIndex(function(h) { return h.toString().toLowerCase().indexOf("nama") !== -1; });
+      
       var mhsMap = {};
-      if (isFormatLama) {
-        var sheetMahasiswa = ss.getSheetByName("Data_Mahasiswa");
-        if (sheetMahasiswa) {
-          var dataMahasiswa = sheetMahasiswa.getDataRange().getValues();
-          for (var i = 1; i < dataMahasiswa.length; i++) {
-            if (dataMahasiswa[i][0]) mhsMap[dataMahasiswa[i][0]] = dataMahasiswa[i][1];
-          }
+      if (sheetMahasiswa) {
+        var dataMahasiswa = sheetMahasiswa.getDataRange().getValues();
+        for (var i = 1; i < dataMahasiswa.length; i++) {
+          if (dataMahasiswa[i][0]) mhsMap[dataMahasiswa[i][0]] = dataMahasiswa[i][1];
         }
       }
       
       for (var j = 1; j < dataPeminjaman.length; j++) {
-        var status = isFormatLama ? dataPeminjaman[j][3] : dataPeminjaman[j][4];
+        var status = dataPeminjaman[j][colStatus];
         
         if (status === "Dipinjam") {
-          var coin = dataPeminjaman[j][1];
-          var kodeAlat = isFormatLama ? dataPeminjaman[j][2] : dataPeminjaman[j][3];
-          var namaPeminjam = isFormatLama ? (mhsMap[coin] || "Nama tidak ditemukan") : dataPeminjaman[j][2];
-          var timestampPinjam = dataPeminjaman[j][0];
+          var coin = dataPeminjaman[j][colCoin];
+          var kodeAlat = dataPeminjaman[j][colKode];
+          var timestampPinjam = dataPeminjaman[j][colTime];
+          
+          var namaPeminjam = "";
+          if (colNama !== -1 && dataPeminjaman[j][colNama]) {
+            namaPeminjam = dataPeminjaman[j][colNama];
+          } else {
+            namaPeminjam = mhsMap[coin] || "Nama tidak diketahui";
+          }
           
           activeLoans.push({
             timestamp_pinjam: timestampPinjam,
@@ -161,7 +176,6 @@ function doGet(e) {
       }
     }
     
-    // Urutkan data terbaru di atas
     activeLoans.reverse();
     
     return ContentService.createTextOutput(JSON.stringify({"status": "success", "data": activeLoans}))

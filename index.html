@@ -335,26 +335,28 @@
             setLoading(true);
 
             try {
-                // Menggunakan mode: 'no-cors' untuk menghindari blokade CORS preflight dari browser.
-                // Request dikirim sebagai text/plain agar GAS tidak memblokir OPTIONS request, 
-                // namun payload tetap berupa string JSON yang diparsing di backend.
+                // Kita menghapus mode 'no-cors' agar bisa membaca response JSON dari server
                 const response = await fetch(GAS_WEBHOOK_URL, {
                     method: 'POST',
-                    mode: 'no-cors',
                     headers: {
                         'Content-Type': 'text/plain;charset=utf-8'
                     },
                     body: JSON.stringify(payload)
                 });
 
-                // Karena mode 'no-cors', status akan selalu 0 dan tipe opaque.
-                // Kita menganggap berhasil jika request selesai tanpa masuk ke catch.
-                showToast('Peminjaman berhasil dicatat!', 'success');
-                form.reset();
-                document.getElementById('coin_number').focus();
+                const result = await response.json();
+                
+                if (result.status === 'success') {
+                    showToast('Peminjaman berhasil dicatat!', 'success');
+                    form.reset();
+                    document.getElementById('coin_number').focus();
+                } else {
+                    // Jika gagal validasi koin
+                    showToast(result.message || 'Gagal mencatat peminjaman.', 'error');
+                }
             } catch (error) {
                 console.error('Error:', error);
-                showToast('Gagal mencatat peminjaman. Periksa koneksi Anda.', 'error');
+                showToast('Gagal terhubung. Periksa koneksi atau URL Webhook Anda.', 'error');
             } finally {
                 setLoading(false);
             }
@@ -461,7 +463,7 @@
                         <div class="mt-4 flex justify-end">
                             <button onclick="returnItem('${loan.timestamp_pinjam}', '${loan.no_coin}', '${loan.kode_alat}')" class="bg-blue-600 hover:bg-blue-500 text-white font-semibold py-2 px-4 rounded-lg text-sm shadow-md transition-colors flex items-center gap-2">
                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"></path></svg>
-                                Kembalikan Alat
+                                Alat Kembali
                             </button>
                         </div>
                     </div>
@@ -495,17 +497,29 @@
             try {
                 const response = await fetch(GAS_WEBHOOK_URL, {
                     method: 'POST',
-                    mode: 'no-cors',
                     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
                     body: JSON.stringify(payload)
                 });
                 
-                showToast('Alat berhasil dikembalikan!', 'success');
-                // Refresh modal data
-                setTimeout(fetchActiveLoans, 1000);
+                const result = await response.json();
+                
+                if (result.status === 'success') {
+                    showToast('Alat berhasil dikembalikan!', 'success');
+                    setTimeout(fetchActiveLoans, 1000);
+                } else {
+                    showToast(result.message || 'Gagal mengembalikan alat.', 'error');
+                    if (btn) {
+                        btn.disabled = false;
+                        btn.innerHTML = '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"></path></svg> Alat Kembali';
+                    }
+                }
             } catch (error) {
                 console.error(error);
-                showToast('Gagal mengembalikan alat.', 'error');
+                showToast('Gagal terhubung ke server.', 'error');
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerHTML = '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"></path></svg> Alat Kembali';
+                }
             }
         }
     </script>

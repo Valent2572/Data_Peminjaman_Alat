@@ -335,13 +335,15 @@
             setLoading(true);
 
             try {
-                // Kita menghapus mode 'no-cors' agar bisa membaca response JSON dari server
-                const response = await fetch(GAS_WEBHOOK_URL, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'text/plain;charset=utf-8'
-                    },
-                    body: JSON.stringify(payload)
+                // Konversi payload ke URL parameters untuk GET request
+                const url = new URL(GAS_WEBHOOK_URL);
+                url.searchParams.append('action', 'pinjam');
+                url.searchParams.append('timestamp', timestamp);
+                url.searchParams.append('no_coin', noCoin);
+                url.searchParams.append('kode_alat', kodeAlat);
+
+                const response = await fetch(url.toString(), {
+                    method: 'GET'
                 });
 
                 const result = await response.json();
@@ -495,10 +497,14 @@
             }
 
             try {
-                const response = await fetch(GAS_WEBHOOK_URL, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-                    body: JSON.stringify(payload)
+                const url = new URL(GAS_WEBHOOK_URL);
+                url.searchParams.append('action', 'kembali');
+                url.searchParams.append('no_coin', noCoin);
+                url.searchParams.append('kode_alat', kodeAlat);
+                url.searchParams.append('timestamp_kembali', timestampKembali);
+
+                const response = await fetch(url.toString(), {
+                    method: 'GET'
                 });
                 
                 const result = await response.json();

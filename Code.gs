@@ -15,10 +15,57 @@ function doGet(e) {
     
     if (!sheetPeminjaman) {
       sheetPeminjaman = ss.insertSheet("Data_Peminjaman");
-      sheetPeminjaman.appendRow(["Timestamp Pinjam", "No Koin", "Nama Lengkap Peminjam", "Kode Alat", "Nama Detil Alat", "Status", "Timestamp Kembali"]);
+      sheetPeminjaman.appendRow(["Timestamp Pinjam", "No Koin", "Nama Lengkap Peminjam", "NIM", "Kode Alat", "Nama Detil Alat", "Status", "Timestamp Kembali"]);
     }
     
-    // Cache Alat
+    function sortPeminjamanData(sheet) {
+      var data = sheet.getDataRange().getValues();
+      if (data.length <= 1) return; 
+      
+      var sHeaders = data[0];
+      var rows = data.slice(1);
+      
+      var colStatus = sHeaders.findIndex(function(h) { return String(h).toUpperCase() === "STATUS"; });
+      var colTimeKembali = sHeaders.findIndex(function(h) { return String(h).toUpperCase().indexOf("KEMBALI") !== -1; });
+      var colTimePinjam = sHeaders.findIndex(function(h) { return String(h).toUpperCase().indexOf("PINJAM") !== -1; });
+      
+      if (colStatus === -1) colStatus = sHeaders.length - 2; 
+      
+      function parseTs(ts) {
+        if (!ts) return 0;
+        var parts = String(ts).split(" - ");
+        if (parts.length !== 2) return 0;
+        var timeP = parts[0].split(":");
+        var dateP = parts[1].split("-");
+        if (dateP.length !== 3 || timeP.length !== 3) return 0;
+        return new Date(dateP[2], dateP[1]-1, dateP[0], timeP[0], timeP[1], timeP[2]).getTime();
+      }
+      
+      rows.sort(function(a, b) {
+        var statusA = String(a[colStatus] || "").trim().toUpperCase();
+        var statusB = String(b[colStatus] || "").trim().toUpperCase();
+        
+        var weightA = (statusA === "DIPINJAM") ? 0 : 1;
+        var weightB = (statusB === "DIPINJAM") ? 0 : 1;
+        
+        if (weightA !== weightB) {
+          return weightA - weightB; 
+        }
+        
+        if (weightA === 1) { 
+          var timeA = parseTs(colTimeKembali !== -1 ? a[colTimeKembali] : "");
+          var timeB = parseTs(colTimeKembali !== -1 ? b[colTimeKembali] : "");
+          return timeB - timeA; 
+        }
+        
+        var pTimeA = parseTs(colTimePinjam !== -1 ? a[colTimePinjam] : "");
+        var pTimeB = parseTs(colTimePinjam !== -1 ? b[colTimePinjam] : "");
+        return pTimeB - pTimeA; 
+      });
+      
+      sheet.getRange(2, 1, rows.length, rows[0].length).setValues(rows);
+    }
+    
     var alatMap = {};
     if (sheetAlat) {
       var dataAlat = sheetAlat.getDataRange().getValues();
@@ -55,6 +102,7 @@ function doGet(e) {
       var status = "Dipinjam";
       
       var namaLengkapDenganTingkat = "";
+      var nimMhs = "-";
       
       if (tipePeminjam === "instruktur") {
         if (!namaInstruktur) {
@@ -66,19 +114,34 @@ function doGet(e) {
         namaLengkapDenganTingkat = namaInstruktur + " (Instruktur)";
         noCoin = "-";
       } else {
-        // Validasi Mahasiswa dari 4 Sheet (Tk.1 sampai Tk.4)
-        var sheetNames = ["Data_Mahasiswa Tk.1", "Data_Mahasiswa Tk.2", "Data_Mahasiswa Tk.3", "Data_Mahasiswa Tk.4"];
+        // OPTIMISASI: Baca sheet secara terarah berdasarkan simbol jika memungkinkan
+        var targetSheets = [];
+        if (noCoin.indexOf("δ") !== -1) targetSheets.push("Data_Mahasiswa Tk.1");
+        else if (noCoin.indexOf("γ") !== -1) targetSheets.push("Data_Mahasiswa Tk.2");
+        else if (noCoin.indexOf("β") !== -1) targetSheets.push("Data_Mahasiswa Tk.3");
+        else if (noCoin.indexOf("α") !== -1) targetSheets.push("Data_Mahasiswa Tk.4");
+        else {
+          // Jika tidak dikenali, baca semua sebagai cadangan
+          targetSheets = ["Data_Mahasiswa Tk.1", "Data_Mahasiswa Tk.2", "Data_Mahasiswa Tk.3", "Data_Mahasiswa Tk.4"];
+        }
+
         var namaMhs = null;
         var tingkatMhs = "";
         
-        for (var s = 0; s < sheetNames.length; s++) {
-          var sheetMhs = ss.getSheetByName(sheetNames[s]);
+        for (var s = 0; s < targetSheets.length; s++) {
+          var sheetMhs = ss.getSheetByName(targetSheets[s]);
           if (sheetMhs) {
             var dataMhs = sheetMhs.getDataRange().getValues();
             for (var i = 1; i < dataMhs.length; i++) {
               if (String(dataMhs[i][0]).trim() === noCoin) {
                 namaMhs = String(dataMhs[i][1]).trim();
-                tingkatMhs = "Tk." + (s + 1);
+                nimMhs = String(dataMhs[i][2] || "-").trim(); // NIM di kolom C
+                
+                // Set tingkat sesuai nama sheet
+                if (targetSheets[s].indexOf("Tk.1") !== -1) tingkatMhs = "Tk.1";
+                else if (targetSheets[s].indexOf("Tk.2") !== -1) tingkatMhs = "Tk.2";
+                else if (targetSheets[s].indexOf("Tk.3") !== -1) tingkatMhs = "Tk.3";
+                else if (targetSheets[s].indexOf("Tk.4") !== -1) tingkatMhs = "Tk.4";
                 break;
               }
             }
@@ -89,13 +152,12 @@ function doGet(e) {
         if (!namaMhs) {
           return ContentService.createTextOutput(JSON.stringify({
             "status": "error", 
-            "message": "Koin tidak valid. Data mahasiswa tidak ditemukan di tingkat manapun."
+            "message": "Koin tidak valid. Data mahasiswa tidak ditemukan."
           })).setMimeType(ContentService.MimeType.JSON);
         }
         namaLengkapDenganTingkat = namaMhs + " (" + tingkatMhs + ")";
       }
       
-      // Validasi Alat
       var namaDetilAlat = alatMap[kodeAlat.toUpperCase()];
       if (!namaDetilAlat) {
         return ContentService.createTextOutput(JSON.stringify({
@@ -110,7 +172,8 @@ function doGet(e) {
       
       var idxTime = headP.indexOf("Timestamp Pinjam"); if(idxTime===-1) idxTime=0;
       var idxCoin = headP.findIndex(function(h) { return String(h).toUpperCase().indexOf("KOIN") !== -1 || String(h).toUpperCase().indexOf("COIN") !== -1; }); if(idxCoin===-1) idxCoin=1;
-      var idxNamaM = headP.findIndex(function(h) { return String(h).toUpperCase().indexOf("NAMA") !== -1 && String(h).toUpperCase().indexOf("ALAT") === -1; }); if(idxNamaM===-1) idxNamaM=2;
+      var idxNamaM = headP.findIndex(function(h) { return String(h).toUpperCase().indexOf("NAMA") !== -1 && String(h).toUpperCase().indexOf("ALAT") === -1 && String(h).toUpperCase().indexOf("DETIL") === -1; }); if(idxNamaM===-1) idxNamaM=2;
+      var idxNim = headP.findIndex(function(h) { return String(h).toUpperCase() === "NIM"; });
       var idxKode = headP.findIndex(function(h) { return String(h).toUpperCase().indexOf("KODE ALAT") !== -1; }); if(idxKode===-1) idxKode=3;
       var idxNamaA = headP.findIndex(function(h) { return String(h).toUpperCase().indexOf("DETIL ALAT") !== -1 || String(h).toUpperCase().indexOf("NAMA ALAT") !== -1; }); 
       var idxStatus = headP.findIndex(function(h) { return String(h).toUpperCase() === "STATUS"; }); if(idxStatus===-1) idxStatus=headP.length; 
@@ -118,15 +181,24 @@ function doGet(e) {
       newRow[idxTime] = timestamp;
       newRow[idxCoin] = noCoin;
       newRow[idxNamaM] = namaLengkapDenganTingkat;
-      newRow[idxKode] = kodeAlat;
-      if (idxNamaA !== -1) {
-        newRow[idxNamaA] = namaDetilAlat;
-      } else {
-        newRow.push(namaDetilAlat);
+      if (idxNim !== -1) newRow[idxNim] = nimMhs; 
+      
+      if (idxKode !== -1) {
+        newRow[idxKode] = kodeAlat;
       }
+      
+      if (idxNamaA !== -1) {
+        newRow[idxNamaA] = (idxKode === -1) ? (namaDetilAlat + " (" + kodeAlat + ")") : namaDetilAlat;
+      } else {
+        if (idxNim === -1) newRow.push(nimMhs);
+        newRow.push((idxKode === -1) ? (namaDetilAlat + " (" + kodeAlat + ")") : namaDetilAlat);
+      }
+      
       newRow[idxStatus] = status;
       
       sheetPeminjaman.appendRow(newRow);
+      
+      sortPeminjamanData(sheetPeminjaman);
       
       return ContentService.createTextOutput(JSON.stringify({
         "status": "success", 
@@ -149,7 +221,8 @@ function doGet(e) {
         var sheetHeaders = data[0];
         
         var colCoin = sheetHeaders.findIndex(function(h) { return String(h).toUpperCase().indexOf("KOIN") !== -1 || String(h).toUpperCase().indexOf("COIN") !== -1; }); if(colCoin===-1) colCoin=1;
-        var colKode = sheetHeaders.findIndex(function(h) { return String(h).toUpperCase().indexOf("KODE ALAT") !== -1; }); if(colKode===-1) colKode=3;
+        var colKode = sheetHeaders.findIndex(function(h) { return String(h).toUpperCase().indexOf("KODE ALAT") !== -1; });
+        var colNamaA = sheetHeaders.findIndex(function(h) { return String(h).toUpperCase().indexOf("DETIL ALAT") !== -1 || String(h).toUpperCase().indexOf("NAMA ALAT") !== -1; });
         var colStatus = sheetHeaders.findIndex(function(h) { return String(h).toUpperCase() === "STATUS"; }); if(colStatus===-1) colStatus=4;
         var colTimeKembali = sheetHeaders.findIndex(function(h) { return String(h).toUpperCase().indexOf("KEMBALI") !== -1; });
         if (colTimeKembali === -1) colTimeKembali = sheetHeaders.length; 
@@ -159,10 +232,16 @@ function doGet(e) {
 
         for (var j = data.length - 1; j > 0; j--) {
           var rowCoin = String(data[j][colCoin]).trim();
-          var rowKode = String(data[j][colKode]).trim().toUpperCase();
           var rowStatus = String(data[j][colStatus]).trim().toUpperCase();
           
-          if (rowStatus === "DIPINJAM" && rowCoin === targetCoin && rowKode === targetKode) {
+          var matchKode = false;
+          if (colKode !== -1) {
+            matchKode = (String(data[j][colKode]).trim().toUpperCase() === targetKode);
+          } else if (colNamaA !== -1) {
+            matchKode = (String(data[j][colNamaA]).toUpperCase().indexOf("(" + targetKode + ")") !== -1);
+          }
+          
+          if (rowStatus === "DIPINJAM" && rowCoin === targetCoin && matchKode) {
             sheetPeminjaman.getRange(j + 1, colStatus + 1).setValue("Kembali");
             sheetPeminjaman.getRange(j + 1, colTimeKembali + 1).setValue(timestampKembali);
             updated = true;
@@ -172,6 +251,8 @@ function doGet(e) {
       }
       
       if (updated) {
+        sortPeminjamanData(sheetPeminjaman);
+        
         return ContentService.createTextOutput(JSON.stringify({
           "status": "success", 
           "message": "Alat berhasil dikembalikan"
@@ -196,46 +277,50 @@ function doGet(e) {
         
         var colTime = sheetHeaders.findIndex(function(h) { return String(h).toUpperCase().indexOf("TIMESTAMP PINJAM") !== -1; }); if(colTime===-1) colTime=0;
         var colCoin = sheetHeaders.findIndex(function(h) { return String(h).toUpperCase().indexOf("KOIN") !== -1 || String(h).toUpperCase().indexOf("COIN") !== -1; }); if(colCoin===-1) colCoin=1;
-        var colKode = sheetHeaders.findIndex(function(h) { return String(h).toUpperCase().indexOf("KODE ALAT") !== -1; }); if(colKode===-1) colKode=3;
+        var colKode = sheetHeaders.findIndex(function(h) { return String(h).toUpperCase().indexOf("KODE ALAT") !== -1; });
         var colNamaAlatSheet = sheetHeaders.findIndex(function(h) { return String(h).toUpperCase().indexOf("DETIL ALAT") !== -1 || String(h).toUpperCase().indexOf("NAMA ALAT") !== -1; });
         var colStatus = sheetHeaders.findIndex(function(h) { return String(h).toUpperCase() === "STATUS"; }); if(colStatus===-1) colStatus=4;
+        var colNama = sheetHeaders.findIndex(function(h) { return String(h).toUpperCase().indexOf("NAMA") !== -1 && String(h).toUpperCase().indexOf("ALAT") === -1 && String(h).toUpperCase().indexOf("DETIL") === -1; });
+        var colNim = sheetHeaders.findIndex(function(h) { return String(h).toUpperCase() === "NIM"; });
         
-        var colNama = sheetHeaders.findIndex(function(h) { return String(h).toUpperCase().indexOf("NAMA") !== -1 && String(h).toUpperCase().indexOf("ALAT") === -1; });
-        
-        // Build MhsMap dari 4 Sheet untuk fallback
-        var mhsMap = {};
-        var sheetNames = ["Data_Mahasiswa Tk.1", "Data_Mahasiswa Tk.2", "Data_Mahasiswa Tk.3", "Data_Mahasiswa Tk.4"];
-        for (var s = 0; s < sheetNames.length; s++) {
-          var sMhs = ss.getSheetByName(sheetNames[s]);
-          if (sMhs) {
-            var dMhs = sMhs.getDataRange().getValues();
-            for (var i = 1; i < dMhs.length; i++) {
-              if (dMhs[i][0]) mhsMap[String(dMhs[i][0]).trim()] = String(dMhs[i][1]).trim() + " (Tk." + (s + 1) + ")";
-            }
-          }
-        }
+        // OPTIMISASI BESAR: 
+        // Dihapus blok kode mhsMap yang membaca 4 sheet Mahasiswa setiap kali memuat web.
+        // Nama peminjam sudah direkam di sheet Peminjaman, jadi tinggal dibaca saja.
         
         for (var j = 1; j < dataPeminjaman.length; j++) {
           var status = String(dataPeminjaman[j][colStatus]).trim().toUpperCase();
           
           if (status === "DIPINJAM") {
             var coin = String(dataPeminjaman[j][colCoin]).trim();
-            var kodeAlat = String(dataPeminjaman[j][colKode]).trim();
             var timestampPinjam = dataPeminjaman[j][colTime];
             
-            var namaPeminjam = "";
+            var kodeAlat = (colKode !== -1) ? String(dataPeminjaman[j][colKode]).trim() : "";
+            
+            var namaPeminjam = "Nama tidak diketahui";
             if (colNama !== -1 && dataPeminjaman[j][colNama]) {
-              namaPeminjam = dataPeminjaman[j][colNama];
-            } else {
-              namaPeminjam = mhsMap[coin] || "Nama tidak diketahui";
+              namaPeminjam = dataPeminjaman[j][colNama]; // Langsung ambil dari sheet peminjaman!
+            }
+            
+            var nimPeminjam = "-";
+            if (colNim !== -1 && dataPeminjaman[j][colNim]) {
+              nimPeminjam = dataPeminjaman[j][colNim];
             }
             
             var nDetilAlat = (colNamaAlatSheet !== -1 && dataPeminjaman[j][colNamaAlatSheet]) ? dataPeminjaman[j][colNamaAlatSheet] : alatMap[kodeAlat.toUpperCase()];
+            
+            if (colKode === -1 && nDetilAlat) {
+              var match = String(nDetilAlat).match(/\((.*?)\)$/);
+              if (match) {
+                kodeAlat = match[1];
+                nDetilAlat = String(nDetilAlat).replace(/\s*\(.*?\)$/, ''); 
+              }
+            }
             
             activeLoans.push({
               timestamp_pinjam: timestampPinjam,
               no_coin: coin,
               nama: namaPeminjam,
+              nim: nimPeminjam,
               kode_alat: kodeAlat,
               nama_alat: nDetilAlat || "Alat tidak terdaftar"
             });

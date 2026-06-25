@@ -526,15 +526,20 @@
                             </div>
                             <span class="text-xs bg-emerald-500/20 text-emerald-400 px-2.5 py-1 rounded border border-emerald-500/30 font-medium">Aktif Dipinjam</span>
                         </div>
-                        <div class="space-y-1.5 text-sm bg-slate-900/50 p-3 rounded-lg border border-slate-700/50">
-                            <p class="text-slate-200 flex justify-between">
-                                <span class="text-slate-500">Peminjam</span> 
-                                <span class="font-medium text-right">${loan.nama} <span class="text-blue-400 text-xs ml-1">(${loan.no_coin})</span></span>
-                            </p>
-                            <p class="text-slate-200 flex justify-between">
-                                <span class="text-slate-500">Waktu Pinjam</span> 
-                                <span class="font-medium">${formatDateTime(loan.timestamp_pinjam)}</span>
-                            </p>
+                        <div class="space-y-2 text-sm bg-slate-900/50 p-4 rounded-lg border border-slate-700/50">
+                            <div class="grid grid-cols-[90px_1fr] gap-x-2 gap-y-2 items-center">
+                                <span class="text-slate-400">Peminjam</span>
+                                <span class="font-medium text-white">${loan.nama}</span>
+                                
+                                <span class="text-slate-400">No Koin</span>
+                                <span class="font-medium text-blue-400">${loan.no_coin}</span>
+                                
+                                <span class="text-slate-400">NIM</span>
+                                <span class="font-medium text-white">${loan.nim || '-'}</span>
+                                
+                                <span class="text-slate-400">Waktu Pinjam</span>
+                                <span class="font-medium text-white">${loan.timestamp_pinjam}</span>
+                            </div>
                         </div>
                         <div class="mt-4 flex justify-end">
                             <button onclick="returnItem('${loan.timestamp_pinjam}', '${loan.no_coin}', '${loan.kode_alat}')" class="bg-blue-600 hover:bg-blue-500 text-white font-semibold py-2 px-4 rounded-lg text-sm shadow-md transition-colors flex items-center gap-2">

@@ -11,12 +11,11 @@ function doGet(e) {
   try {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var sheetPeminjaman = ss.getSheetByName("Data_Peminjaman");
-    var sheetMahasiswa = ss.getSheetByName("Data_Mahasiswa");
     var sheetAlat = ss.getSheetByName("Data_Alat");
     
     if (!sheetPeminjaman) {
       sheetPeminjaman = ss.insertSheet("Data_Peminjaman");
-      sheetPeminjaman.appendRow(["Timestamp Pinjam", "No Coin", "Nama Lengkap Peminjam", "Kode Alat", "Nama Detil Alat", "Status", "Timestamp Kembali"]);
+      sheetPeminjaman.appendRow(["Timestamp Pinjam", "No Koin", "Nama Lengkap Peminjam", "Kode Alat", "Nama Detil Alat", "Status", "Timestamp Kembali"]);
     }
     
     // Cache Alat
@@ -36,7 +35,7 @@ function doGet(e) {
         
         for (var i = 1; i < dataAlat.length; i++) {
           if (dataAlat[i][colKodeAlat]) {
-            alatMap[String(dataAlat[i][colKodeAlat]).trim()] = String(dataAlat[i][colNamaAlat] || "").trim();
+            alatMap[String(dataAlat[i][colKodeAlat]).trim().toUpperCase()] = String(dataAlat[i][colNamaAlat] || "").trim();
           }
         }
       }
@@ -49,32 +48,42 @@ function doGet(e) {
     // ==========================================
     if (action === "pinjam") {
       var timestamp = e.parameter.timestamp;
-      var noCoin = e.parameter.no_coin;
-      var kodeAlat = e.parameter.kode_alat;
+      var noCoin = String(e.parameter.no_coin).trim();
+      var kodeAlat = String(e.parameter.kode_alat).trim();
       var status = "Dipinjam";
       
-      // Validasi Mahasiswa
+      // Validasi Mahasiswa dari 4 Sheet (Tk.1 sampai Tk.4)
+      var sheetNames = ["Data_Mahasiswa Tk.1", "Data_Mahasiswa Tk.2", "Data_Mahasiswa Tk.3", "Data_Mahasiswa Tk.4"];
       var namaMhs = null;
-      if (sheetMahasiswa) {
-        var dataMhs = sheetMahasiswa.getDataRange().getValues();
-        for (var i = 1; i < dataMhs.length; i++) {
-          if (dataMhs[i][0] == noCoin) {
-            namaMhs = dataMhs[i][1];
-            break;
+      var tingkatMhs = "";
+      
+      for (var s = 0; s < sheetNames.length; s++) {
+        var sheetMhs = ss.getSheetByName(sheetNames[s]);
+        if (sheetMhs) {
+          var dataMhs = sheetMhs.getDataRange().getValues();
+          for (var i = 1; i < dataMhs.length; i++) {
+            if (String(dataMhs[i][0]).trim() === noCoin) {
+              namaMhs = String(dataMhs[i][1]).trim(); // Ambil nama
+              tingkatMhs = "Tk." + (s + 1); // Penanda tingkat
+              break;
+            }
           }
         }
+        if (namaMhs) break; // Berhenti mencari jika sudah ketemu
       }
       
       if (!namaMhs) {
         return ContentService.createTextOutput(JSON.stringify({
           "status": "error", 
-          "message": "Koin tidak valid. Data mahasiswa tidak ditemukan."
+          "message": "Koin tidak valid. Data mahasiswa tidak ditemukan di tingkat manapun."
         })).setMimeType(ContentService.MimeType.JSON);
       }
+
+      // Gabungkan nama dengan tingkatnya (Contoh: "Adelia Putri Rahmadhani (Tk.1)")
+      var namaLengkapDenganTingkat = namaMhs + " (" + tingkatMhs + ")";
       
       // Validasi Alat
-      var kodeAlatStr = String(kodeAlat).trim();
-      var namaDetilAlat = alatMap[kodeAlatStr];
+      var namaDetilAlat = alatMap[kodeAlat.toUpperCase()];
       if (!namaDetilAlat) {
         return ContentService.createTextOutput(JSON.stringify({
           "status": "error", 
@@ -82,26 +91,24 @@ function doGet(e) {
         })).setMimeType(ContentService.MimeType.JSON);
       }
       
-      // Kita pakai logika cerdas untuk append row agar menyesuaikan urutan kolom saat ini
       var headP = sheetPeminjaman.getDataRange().getValues()[0];
       var newRow = new Array(headP.length);
-      for(var k=0; k<newRow.length; k++) newRow[k] = ""; // Inisialisasi kosong
+      for(var k=0; k<newRow.length; k++) newRow[k] = ""; 
       
       var idxTime = headP.indexOf("Timestamp Pinjam"); if(idxTime===-1) idxTime=0;
-      var idxCoin = headP.indexOf("No Coin"); if(idxCoin===-1) idxCoin=1;
-      var idxNamaM = headP.findIndex(function(h) { return h.toString().toLowerCase().indexOf("nama") !== -1 && h.toString().toLowerCase().indexOf("alat") === -1; }); if(idxNamaM===-1) idxNamaM=2;
-      var idxKode = headP.indexOf("Kode Alat"); if(idxKode===-1) idxKode=3;
-      var idxNamaA = headP.indexOf("Nama Detil Alat"); 
-      var idxStatus = headP.indexOf("Status"); if(idxStatus===-1) idxStatus=headP.length; // Taruh di belakang kalau ga ada
+      var idxCoin = headP.findIndex(function(h) { return String(h).toUpperCase().indexOf("KOIN") !== -1 || String(h).toUpperCase().indexOf("COIN") !== -1; }); if(idxCoin===-1) idxCoin=1;
+      var idxNamaM = headP.findIndex(function(h) { return String(h).toUpperCase().indexOf("NAMA") !== -1 && String(h).toUpperCase().indexOf("ALAT") === -1; }); if(idxNamaM===-1) idxNamaM=2;
+      var idxKode = headP.findIndex(function(h) { return String(h).toUpperCase().indexOf("KODE ALAT") !== -1; }); if(idxKode===-1) idxKode=3;
+      var idxNamaA = headP.findIndex(function(h) { return String(h).toUpperCase().indexOf("DETIL ALAT") !== -1 || String(h).toUpperCase().indexOf("NAMA ALAT") !== -1; }); 
+      var idxStatus = headP.findIndex(function(h) { return String(h).toUpperCase() === "STATUS"; }); if(idxStatus===-1) idxStatus=headP.length; 
       
       newRow[idxTime] = timestamp;
       newRow[idxCoin] = noCoin;
-      newRow[idxNamaM] = namaMhs;
+      newRow[idxNamaM] = namaLengkapDenganTingkat;
       newRow[idxKode] = kodeAlat;
       if (idxNamaA !== -1) {
         newRow[idxNamaA] = namaDetilAlat;
       } else {
-        // Kalau belum ada kolom Nama Detil Alat, taruh setelah Kode Alat saja (resiko menggeser, maka disarankan tambah kolom)
         newRow.push(namaDetilAlat);
       }
       newRow[idxStatus] = status;
@@ -118,8 +125,8 @@ function doGet(e) {
     // ACTION: KEMBALIKAN ALAT
     // ==========================================
     else if (action === "kembali") {
-      var noCoin = e.parameter.no_coin;
-      var kodeAlat = e.parameter.kode_alat;
+      var noCoin = String(e.parameter.no_coin).trim();
+      var kodeAlat = String(e.parameter.kode_alat).trim();
       var timestampKembali = e.parameter.timestamp_kembali;
       
       var data = sheetPeminjaman.getDataRange().getValues();
@@ -128,22 +135,21 @@ function doGet(e) {
       if (data.length > 1) {
         var sheetHeaders = data[0];
         
-        var colCoin = sheetHeaders.indexOf("No Coin") !== -1 ? sheetHeaders.indexOf("No Coin") : 1;
-        var colKode = sheetHeaders.indexOf("Kode Alat") !== -1 ? sheetHeaders.indexOf("Kode Alat") : 3;
-        var colStatus = sheetHeaders.indexOf("Status") !== -1 ? sheetHeaders.indexOf("Status") : 4;
-        var colTimeKembali = sheetHeaders.indexOf("Timestamp Kembali");
+        var colCoin = sheetHeaders.findIndex(function(h) { return String(h).toUpperCase().indexOf("KOIN") !== -1 || String(h).toUpperCase().indexOf("COIN") !== -1; }); if(colCoin===-1) colCoin=1;
+        var colKode = sheetHeaders.findIndex(function(h) { return String(h).toUpperCase().indexOf("KODE ALAT") !== -1; }); if(colKode===-1) colKode=3;
+        var colStatus = sheetHeaders.findIndex(function(h) { return String(h).toUpperCase() === "STATUS"; }); if(colStatus===-1) colStatus=4;
+        var colTimeKembali = sheetHeaders.findIndex(function(h) { return String(h).toUpperCase().indexOf("KEMBALI") !== -1; });
         if (colTimeKembali === -1) colTimeKembali = sheetHeaders.length; 
         
-        var targetCoin = String(noCoin).trim();
-        var targetKode = String(kodeAlat).trim();
+        var targetCoin = noCoin;
+        var targetKode = kodeAlat.toUpperCase();
 
-        // Loop dari bawah ke atas
         for (var j = data.length - 1; j > 0; j--) {
           var rowCoin = String(data[j][colCoin]).trim();
-          var rowKode = String(data[j][colKode]).trim();
-          var rowStatus = String(data[j][colStatus]).trim();
+          var rowKode = String(data[j][colKode]).trim().toUpperCase();
+          var rowStatus = String(data[j][colStatus]).trim().toUpperCase();
           
-          if (rowStatus === "Dipinjam" && rowCoin === targetCoin && rowKode === targetKode) {
+          if (rowStatus === "DIPINJAM" && rowCoin === targetCoin && rowKode === targetKode) {
             sheetPeminjaman.getRange(j + 1, colStatus + 1).setValue("Kembali");
             sheetPeminjaman.getRange(j + 1, colTimeKembali + 1).setValue(timestampKembali);
             updated = true;
@@ -175,31 +181,33 @@ function doGet(e) {
       if (dataPeminjaman.length > 1) {
         var sheetHeaders = dataPeminjaman[0];
         
-        var colTime = sheetHeaders.indexOf("Timestamp Pinjam");
-        if (colTime === -1) colTime = sheetHeaders.indexOf("Timestamp");
-        if (colTime === -1) colTime = 0;
+        var colTime = sheetHeaders.findIndex(function(h) { return String(h).toUpperCase().indexOf("TIMESTAMP PINJAM") !== -1; }); if(colTime===-1) colTime=0;
+        var colCoin = sheetHeaders.findIndex(function(h) { return String(h).toUpperCase().indexOf("KOIN") !== -1 || String(h).toUpperCase().indexOf("COIN") !== -1; }); if(colCoin===-1) colCoin=1;
+        var colKode = sheetHeaders.findIndex(function(h) { return String(h).toUpperCase().indexOf("KODE ALAT") !== -1; }); if(colKode===-1) colKode=3;
+        var colNamaAlatSheet = sheetHeaders.findIndex(function(h) { return String(h).toUpperCase().indexOf("DETIL ALAT") !== -1 || String(h).toUpperCase().indexOf("NAMA ALAT") !== -1; });
+        var colStatus = sheetHeaders.findIndex(function(h) { return String(h).toUpperCase() === "STATUS"; }); if(colStatus===-1) colStatus=4;
         
-        var colCoin = sheetHeaders.indexOf("No Coin") !== -1 ? sheetHeaders.indexOf("No Coin") : 1;
-        var colKode = sheetHeaders.indexOf("Kode Alat") !== -1 ? sheetHeaders.indexOf("Kode Alat") : 3;
-        var colNamaAlatSheet = sheetHeaders.indexOf("Nama Detil Alat");
-        var colStatus = sheetHeaders.indexOf("Status");
+        var colNama = sheetHeaders.findIndex(function(h) { return String(h).toUpperCase().indexOf("NAMA") !== -1 && String(h).toUpperCase().indexOf("ALAT") === -1; });
         
-        var colNama = sheetHeaders.findIndex(function(h) { return h.toString().toLowerCase().indexOf("nama") !== -1 && h.toString().toLowerCase().indexOf("alat") === -1; });
-        
+        // Build MhsMap dari 4 Sheet untuk fallback
         var mhsMap = {};
-        if (sheetMahasiswa) {
-          var dataMahasiswa = sheetMahasiswa.getDataRange().getValues();
-          for (var i = 1; i < dataMahasiswa.length; i++) {
-            if (dataMahasiswa[i][0]) mhsMap[dataMahasiswa[i][0]] = dataMahasiswa[i][1];
+        var sheetNames = ["Data_Mahasiswa Tk.1", "Data_Mahasiswa Tk.2", "Data_Mahasiswa Tk.3", "Data_Mahasiswa Tk.4"];
+        for (var s = 0; s < sheetNames.length; s++) {
+          var sMhs = ss.getSheetByName(sheetNames[s]);
+          if (sMhs) {
+            var dMhs = sMhs.getDataRange().getValues();
+            for (var i = 1; i < dMhs.length; i++) {
+              if (dMhs[i][0]) mhsMap[String(dMhs[i][0]).trim()] = String(dMhs[i][1]).trim() + " (Tk." + (s + 1) + ")";
+            }
           }
         }
         
         for (var j = 1; j < dataPeminjaman.length; j++) {
-          var status = String(dataPeminjaman[j][colStatus]).trim();
+          var status = String(dataPeminjaman[j][colStatus]).trim().toUpperCase();
           
-          if (status === "Dipinjam") {
-            var coin = dataPeminjaman[j][colCoin];
-            var kodeAlat = dataPeminjaman[j][colKode];
+          if (status === "DIPINJAM") {
+            var coin = String(dataPeminjaman[j][colCoin]).trim();
+            var kodeAlat = String(dataPeminjaman[j][colKode]).trim();
             var timestampPinjam = dataPeminjaman[j][colTime];
             
             var namaPeminjam = "";
@@ -209,7 +217,7 @@ function doGet(e) {
               namaPeminjam = mhsMap[coin] || "Nama tidak diketahui";
             }
             
-            var nDetilAlat = (colNamaAlatSheet !== -1) ? dataPeminjaman[j][colNamaAlatSheet] : alatMap[kodeAlat];
+            var nDetilAlat = (colNamaAlatSheet !== -1 && dataPeminjaman[j][colNamaAlatSheet]) ? dataPeminjaman[j][colNamaAlatSheet] : alatMap[kodeAlat.toUpperCase()];
             
             activeLoans.push({
               timestamp_pinjam: timestampPinjam,

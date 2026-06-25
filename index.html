@@ -277,6 +277,24 @@
             }, 4000);
         }
 
+        function getWIBTimestamp() {
+            const now = new Date();
+            // Ambil string waktu di zona WIB
+            const wibString = now.toLocaleString("en-US", {timeZone: "Asia/Jakarta"});
+            const wibDate = new Date(wibString);
+            
+            const h = String(wibDate.getHours()).padStart(2, '0');
+            const m = String(wibDate.getMinutes()).padStart(2, '0');
+            const s = String(wibDate.getSeconds()).padStart(2, '0');
+            
+            const d = String(wibDate.getDate()).padStart(2, '0');
+            const mo = String(wibDate.getMonth() + 1).padStart(2, '0');
+            const y = wibDate.getFullYear();
+            
+            // Format: JJ:MM:DD - HH-BB-TTTT
+            return `${h}:${m}:${s} - ${d}-${mo}-${y}`;
+        }
+
         function setLoading(isLoading) {
             if (isLoading) {
                 btnText.textContent = 'Memproses...';
@@ -304,10 +322,11 @@
             const noCoin = `${coinSymbol}-${coinNumber}`;
             const kodeAlat = document.getElementById('kode_alat').value.trim();
             
-            // Generate presisi timestamp (YYYY-MM-DDTHH:mm:ss.sssZ)
-            const timestamp = new Date().toISOString();
+            // Generate timestamp format khusus (JJ:MM:DD - HH-BB-TTTT)
+            const timestamp = getWIBTimestamp();
 
             const payload = {
+                action: 'pinjam',
                 timestamp: timestamp,
                 no_coin: noCoin,
                 kode_alat: kodeAlat
@@ -419,7 +438,7 @@
             let html = '';
             loans.forEach(loan => {
                 html += `
-                    <div class="loan-card">
+                    <div class="loan-card" id="loan-${loan.timestamp_pinjam}">
                         <div class="flex justify-between items-start mb-3">
                             <div>
                                 <h3 class="font-bold text-blue-400 text-lg flex items-center gap-2">
@@ -435,14 +454,59 @@
                                 <span class="font-medium text-right">${loan.nama} <span class="text-blue-400 text-xs ml-1">(${loan.no_coin})</span></span>
                             </p>
                             <p class="text-slate-200 flex justify-between">
-                                <span class="text-slate-500">Waktu</span> 
-                                <span class="font-medium">${formatDateTime(loan.timestamp)}</span>
+                                <span class="text-slate-500">Waktu Pinjam</span> 
+                                <span class="font-medium">${formatDateTime(loan.timestamp_pinjam)}</span>
                             </p>
+                        </div>
+                        <div class="mt-4 flex justify-end">
+                            <button onclick="returnItem('${loan.timestamp_pinjam}', '${loan.no_coin}', '${loan.kode_alat}')" class="bg-blue-600 hover:bg-blue-500 text-white font-semibold py-2 px-4 rounded-lg text-sm shadow-md transition-colors flex items-center gap-2">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"></path></svg>
+                                Kembalikan Alat
+                            </button>
                         </div>
                     </div>
                 `;
             });
             modalBody.innerHTML = html;
+        }
+
+        // Handle Return
+        async function returnItem(timestampPinjam, noCoin, kodeAlat) {
+            if (!confirm(`Konfirmasi pengembalian alat ${kodeAlat} oleh ${noCoin}?`)) return;
+
+            const timestampKembali = getWIBTimestamp();
+            const payload = {
+                action: 'kembali',
+                timestamp_pinjam: timestampPinjam,
+                no_coin: noCoin,
+                kode_alat: kodeAlat,
+                timestamp_kembali: timestampKembali
+            };
+
+            showToast('Memproses pengembalian...', 'success');
+            
+            // Set button to loading state visually
+            const btn = document.querySelector(`#loan-${timestampPinjam.replace(/[:.]/g, '\\$&')} button`);
+            if (btn) {
+                btn.disabled = true;
+                btn.innerHTML = '<span class="loader w-4 h-4 border-t-white"></span> Memproses...';
+            }
+
+            try {
+                const response = await fetch(GAS_WEBHOOK_URL, {
+                    method: 'POST',
+                    mode: 'no-cors',
+                    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                    body: JSON.stringify(payload)
+                });
+                
+                showToast('Alat berhasil dikembalikan!', 'success');
+                // Refresh modal data
+                setTimeout(fetchActiveLoans, 1000);
+            } catch (error) {
+                console.error(error);
+                showToast('Gagal mengembalikan alat.', 'error');
+            }
         }
     </script>
 </body>

@@ -1,9 +1,7 @@
 /**
- * Sistem terpusat menggunakan doGet agar tidak ada kendala CORS (Cross-Origin) dari browser.
- * Semua request (Pinjam, Kembali, dan Ambil Data) akan masuk ke sini melalui URL parameter.
+ * Sistem terpusat menggunakan doGet agar tidak ada kendala CORS dari browser.
  */
 function doGet(e) {
-  // CORS Headers
   var headers = {
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "GET",
@@ -14,11 +12,34 @@ function doGet(e) {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var sheetPeminjaman = ss.getSheetByName("Data_Peminjaman");
     var sheetMahasiswa = ss.getSheetByName("Data_Mahasiswa");
+    var sheetAlat = ss.getSheetByName("Data_Alat");
     
-    // Pastikan sheet ada
     if (!sheetPeminjaman) {
       sheetPeminjaman = ss.insertSheet("Data_Peminjaman");
-      sheetPeminjaman.appendRow(["Timestamp Pinjam", "No Coin", "Nama Peminjam", "Kode Alat", "Status", "Timestamp Kembali"]);
+      sheetPeminjaman.appendRow(["Timestamp Pinjam", "No Coin", "Nama Lengkap Peminjam", "Kode Alat", "Nama Detil Alat", "Status", "Timestamp Kembali"]);
+    }
+    
+    // Cache Alat
+    var alatMap = {};
+    if (sheetAlat) {
+      var dataAlat = sheetAlat.getDataRange().getValues();
+      if (dataAlat.length > 0) {
+        var alatHeaders = dataAlat[0];
+        var colKodeAlat = -1, colNamaAlat = -1;
+        for (var h = 0; h < alatHeaders.length; h++) {
+          var text = String(alatHeaders[h]).toUpperCase();
+          if (text.indexOf("KODE") !== -1) colKodeAlat = h;
+          if (text.indexOf("NAMA") !== -1 && text.indexOf("DETIL") !== -1) colNamaAlat = h;
+        }
+        if (colKodeAlat === -1) colKodeAlat = alatHeaders.length >= 6 ? 5 : 0; 
+        if (colNamaAlat === -1) colNamaAlat = colKodeAlat + 1;
+        
+        for (var i = 1; i < dataAlat.length; i++) {
+          if (dataAlat[i][colKodeAlat]) {
+            alatMap[String(dataAlat[i][colKodeAlat]).trim()] = String(dataAlat[i][colNamaAlat] || "").trim();
+          }
+        }
+      }
     }
     
     var action = e.parameter.action;
@@ -32,6 +53,7 @@ function doGet(e) {
       var kodeAlat = e.parameter.kode_alat;
       var status = "Dipinjam";
       
+      // Validasi Mahasiswa
       var namaMhs = null;
       if (sheetMahasiswa) {
         var dataMhs = sheetMahasiswa.getDataRange().getValues();
@@ -50,7 +72,41 @@ function doGet(e) {
         })).setMimeType(ContentService.MimeType.JSON);
       }
       
-      sheetPeminjaman.appendRow([timestamp, noCoin, namaMhs, kodeAlat, status, ""]);
+      // Validasi Alat
+      var kodeAlatStr = String(kodeAlat).trim();
+      var namaDetilAlat = alatMap[kodeAlatStr];
+      if (!namaDetilAlat) {
+        return ContentService.createTextOutput(JSON.stringify({
+          "status": "error", 
+          "message": "Kode alat tidak dikenali di sheet Data_Alat."
+        })).setMimeType(ContentService.MimeType.JSON);
+      }
+      
+      // Kita pakai logika cerdas untuk append row agar menyesuaikan urutan kolom saat ini
+      var headP = sheetPeminjaman.getDataRange().getValues()[0];
+      var newRow = new Array(headP.length);
+      for(var k=0; k<newRow.length; k++) newRow[k] = ""; // Inisialisasi kosong
+      
+      var idxTime = headP.indexOf("Timestamp Pinjam"); if(idxTime===-1) idxTime=0;
+      var idxCoin = headP.indexOf("No Coin"); if(idxCoin===-1) idxCoin=1;
+      var idxNamaM = headP.findIndex(function(h) { return h.toString().toLowerCase().indexOf("nama") !== -1 && h.toString().toLowerCase().indexOf("alat") === -1; }); if(idxNamaM===-1) idxNamaM=2;
+      var idxKode = headP.indexOf("Kode Alat"); if(idxKode===-1) idxKode=3;
+      var idxNamaA = headP.indexOf("Nama Detil Alat"); 
+      var idxStatus = headP.indexOf("Status"); if(idxStatus===-1) idxStatus=headP.length; // Taruh di belakang kalau ga ada
+      
+      newRow[idxTime] = timestamp;
+      newRow[idxCoin] = noCoin;
+      newRow[idxNamaM] = namaMhs;
+      newRow[idxKode] = kodeAlat;
+      if (idxNamaA !== -1) {
+        newRow[idxNamaA] = namaDetilAlat;
+      } else {
+        // Kalau belum ada kolom Nama Detil Alat, taruh setelah Kode Alat saja (resiko menggeser, maka disarankan tambah kolom)
+        newRow.push(namaDetilAlat);
+      }
+      newRow[idxStatus] = status;
+      
+      sheetPeminjaman.appendRow(newRow);
       
       return ContentService.createTextOutput(JSON.stringify({
         "status": "success", 
@@ -125,9 +181,10 @@ function doGet(e) {
         
         var colCoin = sheetHeaders.indexOf("No Coin") !== -1 ? sheetHeaders.indexOf("No Coin") : 1;
         var colKode = sheetHeaders.indexOf("Kode Alat") !== -1 ? sheetHeaders.indexOf("Kode Alat") : 3;
-        var colStatus = sheetHeaders.indexOf("Status") !== -1 ? sheetHeaders.indexOf("Status") : 4;
+        var colNamaAlatSheet = sheetHeaders.indexOf("Nama Detil Alat");
+        var colStatus = sheetHeaders.indexOf("Status");
         
-        var colNama = sheetHeaders.findIndex(function(h) { return h.toString().toLowerCase().indexOf("nama") !== -1; });
+        var colNama = sheetHeaders.findIndex(function(h) { return h.toString().toLowerCase().indexOf("nama") !== -1 && h.toString().toLowerCase().indexOf("alat") === -1; });
         
         var mhsMap = {};
         if (sheetMahasiswa) {
@@ -152,11 +209,14 @@ function doGet(e) {
               namaPeminjam = mhsMap[coin] || "Nama tidak diketahui";
             }
             
+            var nDetilAlat = (colNamaAlatSheet !== -1) ? dataPeminjaman[j][colNamaAlatSheet] : alatMap[kodeAlat];
+            
             activeLoans.push({
               timestamp_pinjam: timestampPinjam,
               no_coin: coin,
               nama: namaPeminjam,
-              kode_alat: kodeAlat
+              kode_alat: kodeAlat,
+              nama_alat: nDetilAlat || "Alat tidak terdaftar"
             });
           }
         }
@@ -174,9 +234,6 @@ function doGet(e) {
   }
 }
 
-/**
- * Fallback jika ter-panggil via POST (meski kita sekarang pakai GET sepenuhnya)
- */
 function doPost(e) {
   return doGet(e);
 }

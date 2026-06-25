@@ -2,7 +2,6 @@
  * Script ini menangani request POST yang masuk ke Web App.
  */
 function doPost(e) {
-  // CORS Headers Helper
   var headers = {
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
@@ -28,7 +27,6 @@ function doPost(e) {
       var kodeAlat = payload.kode_alat;
       var status = "Dipinjam";
       
-      // Validasi Koin: Cari nama peminjam dari Data_Mahasiswa
       var namaMhs = null;
       if (sheetMahasiswa) {
         var dataMhs = sheetMahasiswa.getDataRange().getValues();
@@ -40,7 +38,6 @@ function doPost(e) {
         }
       }
       
-      // Jika koin tidak ditemukan, tolak peminjaman
       if (!namaMhs) {
         return ContentService.createTextOutput(JSON.stringify({
           "status": "error", 
@@ -56,7 +53,8 @@ function doPost(e) {
       })).setMimeType(ContentService.MimeType.JSON);
       
     } else if (action === "kembali") {
-      var timestampPinjam = payload.timestamp_pinjam; 
+      // Kita tidak perlu menggunakan timestampPinjam untuk perbandingan karena rentan error format teks vs Date object di Sheets.
+      // Cukup mencocokkan No Coin, Kode Alat, dan Status = "Dipinjam" karena satu orang tidak bisa meminjam alat yang sama dua kali secara bersamaan.
       var noCoin = payload.no_coin;
       var kodeAlat = payload.kode_alat;
       var timestampKembali = payload.timestamp_kembali;
@@ -67,27 +65,28 @@ function doPost(e) {
       if (data.length > 1) {
         var sheetHeaders = data[0];
         
-        var colTime = sheetHeaders.indexOf("Timestamp Pinjam");
-        if (colTime === -1) colTime = sheetHeaders.indexOf("Timestamp");
-        if (colTime === -1) colTime = 0;
-        
         var colCoin = sheetHeaders.indexOf("No Coin") !== -1 ? sheetHeaders.indexOf("No Coin") : 1;
         var colKode = sheetHeaders.indexOf("Kode Alat") !== -1 ? sheetHeaders.indexOf("Kode Alat") : 3;
         var colStatus = sheetHeaders.indexOf("Status") !== -1 ? sheetHeaders.indexOf("Status") : 4;
+        
         var colTimeKembali = sheetHeaders.indexOf("Timestamp Kembali");
         if (colTimeKembali === -1) colTimeKembali = sheetHeaders.length; 
         
+        // Target string (hapus spasi lebih)
+        var targetCoin = String(noCoin).trim();
+        var targetKode = String(kodeAlat).trim();
+
+        // Loop dari bawah ke atas
         for (var j = data.length - 1; j > 0; j--) {
-          var rowTime = data[j][colTime];
-          var rowCoin = data[j][colCoin];
-          var rowKode = data[j][colKode];
-          var rowStatus = data[j][colStatus];
+          var rowCoin = String(data[j][colCoin]).trim();
+          var rowKode = String(data[j][colKode]).trim();
+          var rowStatus = String(data[j][colStatus]).trim();
           
-          if (rowStatus === "Dipinjam" && rowCoin == noCoin && rowKode == kodeAlat && rowTime == timestampPinjam) {
+          if (rowStatus === "Dipinjam" && rowCoin === targetCoin && rowKode === targetKode) {
             sheetPeminjaman.getRange(j + 1, colStatus + 1).setValue("Kembali");
             sheetPeminjaman.getRange(j + 1, colTimeKembali + 1).setValue(timestampKembali);
             updated = true;
-            break;
+            break; // Berhenti setelah menemukan yang cocok
           }
         }
       }
@@ -100,7 +99,7 @@ function doPost(e) {
       } else {
         return ContentService.createTextOutput(JSON.stringify({
           "status": "error", 
-          "message": "Data peminjaman tidak ditemukan"
+          "message": "Data peminjaman tidak ditemukan di spreadsheet"
         })).setMimeType(ContentService.MimeType.JSON);
       }
     }
@@ -152,7 +151,7 @@ function doGet(e) {
       }
       
       for (var j = 1; j < dataPeminjaman.length; j++) {
-        var status = dataPeminjaman[j][colStatus];
+        var status = String(dataPeminjaman[j][colStatus]).trim();
         
         if (status === "Dipinjam") {
           var coin = dataPeminjaman[j][colCoin];

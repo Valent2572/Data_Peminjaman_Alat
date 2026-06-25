@@ -185,29 +185,44 @@
             <div class="inline-flex items-center justify-center w-20 h-20 rounded-full bg-slate-100 border-4 border-slate-700 mb-4 overflow-hidden shadow-lg">
                 <img src="./logo.png" alt="Logo ATMI" class="w-full h-full object-contain p-2 hover:scale-110 transition-transform duration-300">
             </div>
-            <h1 class="text-2xl font-bold tracking-wider text-slate-100 uppercase">Lab System</h1>
-            <p class="text-sm text-slate-400 mt-1 font-medium">Log Peminjaman Alat</p>
+            <h1 class="text-2xl font-bold tracking-wider text-slate-100 uppercase">Lab Energi</h1>
+            <p class="text-sm text-slate-400 mt-1 font-medium mb-6">Log Peminjaman Alat</p>
+
+            <!-- Toggle Mahasiswa / Instruktur -->
+            <div class="flex justify-center items-center gap-3 mb-2">
+                <span id="label_mahasiswa" class="text-xs font-bold text-blue-400 transition-colors">Mahasiswa</span>
+                <button type="button" id="roleToggle" class="relative inline-flex h-6 w-11 items-center rounded-full bg-blue-500 transition-colors focus:outline-none">
+                    <span id="roleToggleKnob" class="inline-block h-4 w-4 translate-x-1 rounded-full bg-white transition-transform"></span>
+                </button>
+                <span id="label_instruktur" class="text-xs font-bold text-slate-500 transition-colors">Instruktur</span>
+            </div>
         </div>
 
         <form id="loanForm" class="space-y-5">
-            <div>
+            <div id="group_mahasiswa">
                 <label class="block text-sm font-semibold text-slate-300 mb-2">No Coin Mahasiswa</label>
                 <div class="flex items-center gap-2">
-                    <select id="coin_symbol" class="input-field w-2/5 px-3 py-3 rounded-lg cursor-pointer appearance-none text-center">
+                    <select id="coin_symbol" class="input-field w-[45%] px-2 py-3 rounded-lg cursor-pointer appearance-none text-center">
                         <option value="α">Alpha (α)</option>
                         <option value="β">Beta (β)</option>
                         <option value="δ" selected>Delta (δ)</option>
                         <option value="θ">Theta (θ)</option>
                     </select>
                     <span class="text-slate-400 font-bold">-</span>
-                    <input type="text" id="coin_number" inputmode="numeric" required placeholder="Contoh: 0114" 
-                        class="input-field flex-1 px-4 py-3 rounded-lg placeholder-slate-500" autocomplete="off">
+                    <input type="text" id="coin_number" inputmode="numeric" placeholder="Contoh: 0114" 
+                        class="input-field w-[55%] px-4 py-3 rounded-lg placeholder-slate-500" autocomplete="off">
                 </div>
+            </div>
+
+            <div id="group_instruktur" class="hidden">
+                <label class="block text-sm font-semibold text-slate-300 mb-2">Nama Instruktur</label>
+                <input type="text" id="nama_instruktur" placeholder="Nama Lengkap" 
+                    class="input-field w-full px-4 py-3 rounded-lg placeholder-slate-500" autocomplete="off">
             </div>
 
             <div>
                 <label for="kode_alat" class="block text-sm font-semibold text-slate-300 mb-2">Kode Alat</label>
-                <input type="text" id="kode_alat" name="kode_alat" required placeholder="Contoh: AVO-01" 
+                <input type="text" id="kode_alat" name="kode_alat" placeholder="Contoh: AVO-01" 
                     class="input-field w-full px-4 py-3 rounded-lg placeholder-slate-500" autocomplete="off">
             </div>
 
@@ -308,6 +323,43 @@
             }
         }
 
+        // Toggle Logic
+        const roleToggle = document.getElementById('roleToggle');
+        const roleToggleKnob = document.getElementById('roleToggleKnob');
+        const labelMahasiswa = document.getElementById('label_mahasiswa');
+        const labelInstruktur = document.getElementById('label_instruktur');
+        const groupMahasiswa = document.getElementById('group_mahasiswa');
+        const groupInstruktur = document.getElementById('group_instruktur');
+
+        roleToggle.addEventListener('click', () => {
+            const isInstruktur = roleToggleKnob.classList.contains('translate-x-6');
+            if (isInstruktur) {
+                // Switch to Mahasiswa
+                roleToggleKnob.classList.remove('translate-x-6');
+                roleToggleKnob.classList.add('translate-x-1');
+                roleToggle.classList.remove('bg-slate-600');
+                roleToggle.classList.add('bg-blue-500');
+                
+                labelMahasiswa.classList.replace('text-slate-500', 'text-blue-400');
+                labelInstruktur.classList.replace('text-blue-400', 'text-slate-500');
+                
+                groupMahasiswa.classList.remove('hidden');
+                groupInstruktur.classList.add('hidden');
+            } else {
+                // Switch to Instruktur
+                roleToggleKnob.classList.remove('translate-x-1');
+                roleToggleKnob.classList.add('translate-x-6');
+                roleToggle.classList.remove('bg-blue-500');
+                roleToggle.classList.add('bg-slate-600');
+                
+                labelMahasiswa.classList.replace('text-blue-400', 'text-slate-500');
+                labelInstruktur.classList.replace('text-slate-500', 'text-blue-400');
+                
+                groupMahasiswa.classList.add('hidden');
+                groupInstruktur.classList.remove('hidden');
+            }
+        });
+
         form.addEventListener('submit', async (e) => {
             e.preventDefault();
 
@@ -316,20 +368,35 @@
                 return;
             }
 
-            const coinSymbol = document.getElementById('coin_symbol').value;
-            const coinNumber = document.getElementById('coin_number').value.trim();
-            const noCoin = `${coinSymbol}-${coinNumber}`;
+            const isInstruktur = roleToggleKnob.classList.contains('translate-x-6');
+            let noCoin = '';
+            let namaInstruktur = '';
+
+            if (isInstruktur) {
+                namaInstruktur = document.getElementById('nama_instruktur').value.trim();
+                noCoin = '-';
+                if (!namaInstruktur) {
+                    showToast('Nama Instruktur wajib diisi', 'error');
+                    return;
+                }
+            } else {
+                const coinSymbol = document.getElementById('coin_symbol').value;
+                const coinNumber = document.getElementById('coin_number').value.trim();
+                noCoin = `${coinSymbol}-${coinNumber}`;
+                if (!coinNumber) {
+                    showToast('No Koin wajib diisi', 'error');
+                    return;
+                }
+            }
+
             const kodeAlat = document.getElementById('kode_alat').value.trim();
+            if (!kodeAlat) {
+                showToast('Kode Alat wajib diisi', 'error');
+                return;
+            }
             
             // Generate timestamp format khusus (JJ:MM:DD - HH-BB-TTTT)
             const timestamp = getWIBTimestamp();
-
-            const payload = {
-                action: 'pinjam',
-                timestamp: timestamp,
-                no_coin: noCoin,
-                kode_alat: kodeAlat
-            };
 
             setLoading(true);
 
@@ -338,8 +405,16 @@
                 const url = new URL(GAS_WEBHOOK_URL);
                 url.searchParams.append('action', 'pinjam');
                 url.searchParams.append('timestamp', timestamp);
-                url.searchParams.append('no_coin', noCoin);
                 url.searchParams.append('kode_alat', kodeAlat);
+                
+                if (isInstruktur) {
+                    url.searchParams.append('tipe_peminjam', 'instruktur');
+                    url.searchParams.append('nama_instruktur', namaInstruktur);
+                    url.searchParams.append('no_coin', '-');
+                } else {
+                    url.searchParams.append('tipe_peminjam', 'mahasiswa');
+                    url.searchParams.append('no_coin', noCoin);
+                }
 
                 const response = await fetch(url.toString(), {
                     method: 'GET'

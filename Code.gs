@@ -48,39 +48,52 @@ function doGet(e) {
     // ==========================================
     if (action === "pinjam") {
       var timestamp = e.parameter.timestamp;
-      var noCoin = String(e.parameter.no_coin).trim();
+      var noCoin = String(e.parameter.no_coin || "").trim();
       var kodeAlat = String(e.parameter.kode_alat).trim();
+      var tipePeminjam = String(e.parameter.tipe_peminjam || "mahasiswa").toLowerCase();
+      var namaInstruktur = String(e.parameter.nama_instruktur || "").trim();
       var status = "Dipinjam";
       
-      // Validasi Mahasiswa dari 4 Sheet (Tk.1 sampai Tk.4)
-      var sheetNames = ["Data_Mahasiswa Tk.1", "Data_Mahasiswa Tk.2", "Data_Mahasiswa Tk.3", "Data_Mahasiswa Tk.4"];
-      var namaMhs = null;
-      var tingkatMhs = "";
+      var namaLengkapDenganTingkat = "";
       
-      for (var s = 0; s < sheetNames.length; s++) {
-        var sheetMhs = ss.getSheetByName(sheetNames[s]);
-        if (sheetMhs) {
-          var dataMhs = sheetMhs.getDataRange().getValues();
-          for (var i = 1; i < dataMhs.length; i++) {
-            if (String(dataMhs[i][0]).trim() === noCoin) {
-              namaMhs = String(dataMhs[i][1]).trim(); // Ambil nama
-              tingkatMhs = "Tk." + (s + 1); // Penanda tingkat
-              break;
+      if (tipePeminjam === "instruktur") {
+        if (!namaInstruktur) {
+          return ContentService.createTextOutput(JSON.stringify({
+            "status": "error", 
+            "message": "Nama Instruktur tidak boleh kosong."
+          })).setMimeType(ContentService.MimeType.JSON);
+        }
+        namaLengkapDenganTingkat = namaInstruktur + " (Instruktur)";
+        noCoin = "-";
+      } else {
+        // Validasi Mahasiswa dari 4 Sheet (Tk.1 sampai Tk.4)
+        var sheetNames = ["Data_Mahasiswa Tk.1", "Data_Mahasiswa Tk.2", "Data_Mahasiswa Tk.3", "Data_Mahasiswa Tk.4"];
+        var namaMhs = null;
+        var tingkatMhs = "";
+        
+        for (var s = 0; s < sheetNames.length; s++) {
+          var sheetMhs = ss.getSheetByName(sheetNames[s]);
+          if (sheetMhs) {
+            var dataMhs = sheetMhs.getDataRange().getValues();
+            for (var i = 1; i < dataMhs.length; i++) {
+              if (String(dataMhs[i][0]).trim() === noCoin) {
+                namaMhs = String(dataMhs[i][1]).trim();
+                tingkatMhs = "Tk." + (s + 1);
+                break;
+              }
             }
           }
+          if (namaMhs) break;
         }
-        if (namaMhs) break; // Berhenti mencari jika sudah ketemu
+        
+        if (!namaMhs) {
+          return ContentService.createTextOutput(JSON.stringify({
+            "status": "error", 
+            "message": "Koin tidak valid. Data mahasiswa tidak ditemukan di tingkat manapun."
+          })).setMimeType(ContentService.MimeType.JSON);
+        }
+        namaLengkapDenganTingkat = namaMhs + " (" + tingkatMhs + ")";
       }
-      
-      if (!namaMhs) {
-        return ContentService.createTextOutput(JSON.stringify({
-          "status": "error", 
-          "message": "Koin tidak valid. Data mahasiswa tidak ditemukan di tingkat manapun."
-        })).setMimeType(ContentService.MimeType.JSON);
-      }
-
-      // Gabungkan nama dengan tingkatnya (Contoh: "Adelia Putri Rahmadhani (Tk.1)")
-      var namaLengkapDenganTingkat = namaMhs + " (" + tingkatMhs + ")";
       
       // Validasi Alat
       var namaDetilAlat = alatMap[kodeAlat.toUpperCase()];

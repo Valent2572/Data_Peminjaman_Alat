@@ -489,7 +489,8 @@
             showToast('Memproses pengembalian...', 'success');
             
             // Set button to loading state visually
-            const btn = document.querySelector(`#loan-${timestampPinjam.replace(/[:.]/g, '\\$&')} button`);
+            const card = document.getElementById(`loan-${timestampPinjam}`);
+            const btn = card ? card.querySelector('button') : null;
             if (btn) {
                 btn.disabled = true;
                 btn.innerHTML = '<span class="loader w-4 h-4 border-t-white"></span> Memproses...';

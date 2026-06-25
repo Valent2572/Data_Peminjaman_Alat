@@ -4,43 +4,28 @@
  */
 function doPost(e) {
   try {
-    // Mem-parsing body request
-    // Meskipun Content-Type dari client mungkin 'text/plain' (karena mode no-cors), 
-    // isinya adalah JSON string, sehingga kita bisa mem-parsingnya.
     var payload = JSON.parse(e.postData.contents);
-    
     var timestamp = payload.timestamp;
     var noCoin = payload.no_coin;
     var kodeAlat = payload.kode_alat;
     var status = "Dipinjam";
     
-    // Mendapatkan Spreadsheet aktif (asumsi script ini terikat pada file Spreadsheet yang sama).
-    // Jika tidak terikat, gunakan SpreadsheetApp.openById("ID_SPREADSHEET_ANDA");
     var ss = SpreadsheetApp.getActiveSpreadsheet();
-    
-    // Membuka sheet "Data_Peminjaman"
     var sheet = ss.getSheetByName("Data_Peminjaman");
     
-    // Jika sheet belum ada, kita buat sheet tersebut (sebagai fallback/keamanan)
     if (!sheet) {
       sheet = ss.insertSheet("Data_Peminjaman");
-      // Menambahkan header default
       sheet.appendRow(["Timestamp", "No Coin", "Kode Alat", "Status"]);
     }
     
-    // Menambahkan baris baru dengan data peminjaman di baris paling bawah
     sheet.appendRow([timestamp, noCoin, kodeAlat, status]);
     
-    // Response yang dikembalikan. 
-    // (Perlu diingat: pada fetch dengan mode 'no-cors' dari klien, response body ini tidak akan dapat dibaca oleh JS di browser.
-    // Namun response ini tetap berguna jika dites dengan tool seperti Postman atau cURL)
     return ContentService.createTextOutput(JSON.stringify({
       "status": "success", 
       "message": "Data peminjaman berhasil ditambahkan"
     })).setMimeType(ContentService.MimeType.JSON);
       
   } catch (error) {
-    // Menangani error dan mencatatnya
     return ContentService.createTextOutput(JSON.stringify({
       "status": "error", 
       "message": error.toString()
@@ -49,8 +34,60 @@ function doPost(e) {
 }
 
 /**
- * Fungsi doGet digunakan jika ada pengguna yang membuka URL Web App lewat browser (opsional).
+ * Menangani request GET (mengembalikan data JSON).
+ * Ini akan otomatis membolehkan CORS dari browser karena GAS Web App me-redirect output.
  */
 function doGet(e) {
-  return ContentService.createTextOutput("Web App Aktif. Gunakan metode POST untuk mengirim data peminjaman.");
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sheetPeminjaman = ss.getSheetByName("Data_Peminjaman");
+    var sheetMahasiswa = ss.getSheetByName("Data_Mahasiswa");
+    
+    if (!sheetPeminjaman) {
+      return ContentService.createTextOutput(JSON.stringify({"status": "success", "data": []}))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+    
+    var dataPeminjaman = sheetPeminjaman.getDataRange().getValues();
+    var dataMahasiswa = sheetMahasiswa ? sheetMahasiswa.getDataRange().getValues() : [];
+    
+    // Buat map (kamus) untuk mahasiswa: No Coin -> Nama Lengkap
+    var mhsMap = {};
+    if (dataMahasiswa.length > 1) {
+      for (var i = 1; i < dataMahasiswa.length; i++) {
+        var noCoin = dataMahasiswa[i][0];
+        var nama = dataMahasiswa[i][1];
+        if (noCoin) {
+          mhsMap[noCoin] = nama;
+        }
+      }
+    }
+    
+    var activeLoans = [];
+    if (dataPeminjaman.length > 1) {
+      // Loop dari baris 2 (indeks 1) ke bawah
+      for (var j = 1; j < dataPeminjaman.length; j++) {
+        var status = dataPeminjaman[j][3];
+        if (status === "Dipinjam") {
+          var coin = dataPeminjaman[j][1];
+          activeLoans.push({
+            timestamp: dataPeminjaman[j][0],
+            no_coin: coin,
+            nama: mhsMap[coin] || "Nama tidak ditemukan",
+            kode_alat: dataPeminjaman[j][2]
+          });
+        }
+      }
+    }
+    
+    // Urutkan data terbaru di atas (reverse)
+    activeLoans.reverse();
+    
+    return ContentService.createTextOutput(JSON.stringify({"status": "success", "data": activeLoans}))
+      .setMimeType(ContentService.MimeType.JSON);
+      
+  } catch(error) {
+    return ContentService.createTextOutput(JSON.stringify({"status": "error", "message": error.toString()}))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
 }

@@ -160,6 +160,19 @@
             border-color: #3b82f6;
             background: rgba(30, 41, 59, 0.8);
         }
+        
+        /* Skeleton Animation */
+        @keyframes pulse-skeleton {
+            0%, 100% { opacity: 1; }
+            50% { opacity: .5; }
+        }
+        .skeleton {
+            animation: pulse-skeleton 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+        .skeleton-block {
+            background-color: #334155;
+            border-radius: 0.5rem;
+        }
     </style>
 </head>
 <body class="min-h-screen flex items-center justify-center p-4">
@@ -251,11 +264,18 @@
                     </div>
                     <h2 class="text-xl font-bold text-slate-100">Peminjaman Aktif</h2>
                 </div>
-                <button id="closeModalBtn" class="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-slate-700 transition-colors">
-                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
-                    </svg>
-                </button>
+                <div class="flex items-center gap-2">
+                    <button id="refreshModalBtn" class="text-blue-400 hover:text-white p-1.5 rounded-lg hover:bg-blue-500/20 transition-colors" title="Segarkan Data">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                        </svg>
+                    </button>
+                    <button id="closeModalBtn" class="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-slate-700 transition-colors">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                        </svg>
+                    </button>
+                </div>
             </div>
             <div class="modal-body" id="modalBody">
                 <!-- Data will be injected here -->
@@ -426,6 +446,8 @@
                     showToast('Peminjaman berhasil dicatat!', 'success');
                     form.reset();
                     document.getElementById('coin_number').focus();
+                    // Curi start: update data latar belakang setelah meminjam
+                    setTimeout(() => fetchActiveLoans(true), 1000);
                 } else {
                     // Jika gagal validasi koin
                     showToast(result.message || 'Gagal mencatat peminjaman.', 'error');
@@ -443,12 +465,28 @@
         // ==========================================
         const openMenuBtn = document.getElementById('openMenuBtn');
         const closeModalBtn = document.getElementById('closeModalBtn');
+        const refreshModalBtn = document.getElementById('refreshModalBtn');
         const activeLoansModal = document.getElementById('activeLoansModal');
         const modalBody = document.getElementById('modalBody');
 
         openMenuBtn.addEventListener('click', () => {
             activeLoansModal.classList.add('active');
-            fetchActiveLoans();
+            // Jika ada cache lokal, render INSTAN
+            const cached = localStorage.getItem('lab_active_loans');
+            if (cached) {
+                renderActiveLoans(JSON.parse(cached));
+                // Tetap lakukan fetch di background untuk validasi (stale-while-revalidate)
+                fetchActiveLoans(true); 
+            } else {
+                fetchActiveLoans(false);
+            }
+        });
+        
+        refreshModalBtn.addEventListener('click', () => {
+            refreshModalBtn.classList.add('animate-spin');
+            fetchActiveLoans(false).finally(() => {
+                setTimeout(() => refreshModalBtn.classList.remove('animate-spin'), 500);
+            });
         });
 
         closeModalBtn.addEventListener('click', () => {
@@ -470,35 +508,61 @@
             });
         }
 
-        async function fetchActiveLoans() {
-            modalBody.innerHTML = `
-                <div class="flex flex-col items-center justify-center py-12 text-slate-400">
-                    <span class="loader w-8 h-8 mb-4 border-t-blue-500"></span>
-                    <p class="font-medium">Mengambil data dari server...</p>
+        function getSkeletonHTML() {
+            return `
+                <div class="skeleton mb-4">
+                    <div class="bg-slate-900/50 border border-slate-700/50 p-4 rounded-xl">
+                        <div class="flex justify-between items-start mb-3">
+                            <div class="skeleton-block h-6 w-48"></div>
+                            <div class="skeleton-block h-6 w-24"></div>
+                        </div>
+                        <div class="bg-slate-800/50 p-4 rounded-lg space-y-3">
+                            <div class="skeleton-block h-4 w-3/4"></div>
+                            <div class="skeleton-block h-4 w-1/2"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="skeleton">
+                    <div class="bg-slate-900/50 border border-slate-700/50 p-4 rounded-xl">
+                        <div class="flex justify-between items-start mb-3">
+                            <div class="skeleton-block h-6 w-40"></div>
+                            <div class="skeleton-block h-6 w-24"></div>
+                        </div>
+                        <div class="bg-slate-800/50 p-4 rounded-lg space-y-3">
+                            <div class="skeleton-block h-4 w-2/3"></div>
+                            <div class="skeleton-block h-4 w-1/2"></div>
+                        </div>
+                    </div>
                 </div>
             `;
+        }
+
+        async function fetchActiveLoans(isSilent = false) {
+            if (!isSilent) {
+                modalBody.innerHTML = getSkeletonHTML();
+            }
             
             try {
-                // Gunakan GET request standar. 
-                // GAS membolehkan CORS dari respon doGet yang me-redirect output JSON.
                 const response = await fetch(GAS_WEBHOOK_URL);
                 if (!response.ok) throw new Error('Network response was not ok');
                 const result = await response.json();
                 
                 if (result.status === 'success') {
+                    localStorage.setItem('lab_active_loans', JSON.stringify(result.data));
                     renderActiveLoans(result.data);
                 } else {
                     throw new Error(result.message || 'Unknown error');
                 }
             } catch (error) {
                 console.error(error);
-                modalBody.innerHTML = `
-                    <div class="text-center py-8 text-red-400 bg-red-500/10 rounded-xl border border-red-500/20">
-                        <svg class="w-12 h-12 mx-auto mb-3 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-                        <p class="font-medium px-4">Gagal memuat data.</p>
-                        <p class="text-sm mt-2 opacity-80 px-4">Pastikan Anda telah mengupdate Code.gs dan men-Deploy ulang Apps Script sebagai versi baru.</p>
-                    </div>
-                `;
+                if (!isSilent) {
+                    modalBody.innerHTML = `
+                        <div class="text-center py-8 text-red-400 bg-red-500/10 rounded-xl border border-red-500/20">
+                            <svg class="w-12 h-12 mx-auto mb-3 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                            <p class="font-medium px-4">Gagal memuat data.</p>
+                        </div>
+                    `;
+                }
             }
         }
 
@@ -591,7 +655,8 @@
                 
                 if (result.status === 'success') {
                     showToast('Alat berhasil dikembalikan!', 'success');
-                    setTimeout(fetchActiveLoans, 1000);
+                    // Silently refresh the list if they are looking at it
+                    setTimeout(() => fetchActiveLoans(true), 500);
                 } else {
                     showToast(result.message || 'Gagal mengembalikan alat.', 'error');
                     if (btn) {
@@ -605,9 +670,25 @@
                 if (btn) {
                     btn.disabled = false;
                     btn.innerHTML = '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"></path></svg> Alat Kembali';
-                }
             }
         }
+
+        // ==========================================
+        // SMART TRIGGERS (Curi Start Latar Belakang)
+        // ==========================================
+        
+        // 1. Saat pertama kali web dibuka
+        document.addEventListener('DOMContentLoaded', () => {
+            fetchActiveLoans(true);
+        });
+
+        // 2. Saat dosen kembali ke tab browser ini
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden) {
+                fetchActiveLoans(true);
+            }
+        });
+
     </script>
 </body>
 </html>

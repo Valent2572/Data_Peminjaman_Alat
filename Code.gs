@@ -18,6 +18,48 @@ function doGet(e) {
       sheetPeminjaman.appendRow(["Timestamp Pinjam", "No Koin", "Nama Lengkap Peminjam", "NIM", "Kode Alat", "Nama Detil Alat", "Status", "Timestamp Kembali"]);
     }
     
+    var scriptProps = PropertiesService.getScriptProperties();
+    
+    function buildSymbolMap(spreadsheet) {
+      var map = {};
+      var sNames = ["Data_Mahasiswa Tk.1", "Data_Mahasiswa Tk.2", "Data_Mahasiswa Tk.3", "Data_Mahasiswa Tk.4"];
+      for (var i = 0; i < sNames.length; i++) {
+        var sh = spreadsheet.getSheetByName(sNames[i]);
+        if (sh) {
+          var d = sh.getRange(1, 1, Math.min(5, sh.getLastRow()), 1).getValues();
+          for (var j = 1; j < d.length; j++) {
+            var cVal = String(d[j][0]).trim();
+            if (cVal && cVal.indexOf("-") !== -1) {
+              var sym = cVal.split("-")[0].trim().toUpperCase();
+              map[sym] = sNames[i];
+              break;
+            }
+          }
+        }
+      }
+      scriptProps.setProperty("SYMBOL_MAP", JSON.stringify(map));
+      scriptProps.setProperty("MAP_MONTH", new Date().getMonth().toString());
+      return map;
+    }
+    
+    function getTargetSheet(spreadsheet, incomingSymbol) {
+      incomingSymbol = String(incomingSymbol).toUpperCase();
+      var mapStr = scriptProps.getProperty("SYMBOL_MAP");
+      var mapMonth = scriptProps.getProperty("MAP_MONTH");
+      var currentMonth = new Date().getMonth().toString();
+      
+      var map = null;
+      if (mapStr && mapMonth === currentMonth) {
+        try { map = JSON.parse(mapStr); } catch(e) {}
+      }
+      
+      if (!map) {
+        map = buildSymbolMap(spreadsheet);
+      }
+      return map[incomingSymbol];
+    }
+    
+    
     function sortPeminjamanData(sheet) {
       var data = sheet.getDataRange().getValues();
       if (data.length <= 1) return; 
@@ -114,47 +156,75 @@ function doGet(e) {
         namaLengkapDenganTingkat = namaInstruktur + " (Instruktur)";
         noCoin = "-";
       } else {
-        // OPTIMISASI: Baca sheet secara terarah berdasarkan simbol jika memungkinkan
-        var targetSheets = [];
-        if (noCoin.indexOf("δ") !== -1) targetSheets.push("Data_Mahasiswa Tk.1");
-        else if (noCoin.indexOf("γ") !== -1) targetSheets.push("Data_Mahasiswa Tk.2");
-        else if (noCoin.indexOf("β") !== -1) targetSheets.push("Data_Mahasiswa Tk.3");
-        else if (noCoin.indexOf("α") !== -1) targetSheets.push("Data_Mahasiswa Tk.4");
-        else {
-          // Jika tidak dikenali, baca semua sebagai cadangan
-          targetSheets = ["Data_Mahasiswa Tk.1", "Data_Mahasiswa Tk.2", "Data_Mahasiswa Tk.3", "Data_Mahasiswa Tk.4"];
+        var incomingSymbol = noCoin.indexOf("-") !== -1 ? noCoin.split("-")[0].trim() : "";
+        // Fungsi pencocokan kebal typo (mengabaikan spasi, huruf besar/kecil, dan menterjemahkan huruf latin a/b/g/d ke simbol yunani)
+        function normalizeCoin(c) {
+          var s = String(c).replace(/\s+/g, "").toLowerCase();
+          s = s.replace(/^a/, "α");
+          s = s.replace(/^b/, "β");
+          s = s.replace(/^g/, "γ");
+          s = s.replace(/^y/, "γ"); // kadang gamma diketik y
+          s = s.replace(/^d/, "δ");
+          return s;
         }
-
+        var normalizedIncomingCoin = normalizeCoin(noCoin);
+        
+        var targetSheetName = incomingSymbol ? getTargetSheet(ss, incomingSymbol) : null;
+        var primarySheets = targetSheetName ? [targetSheetName] : ["Data_Mahasiswa Tk.1", "Data_Mahasiswa Tk.2", "Data_Mahasiswa Tk.3", "Data_Mahasiswa Tk.4"];
+        
         var namaMhs = null;
         var tingkatMhs = "";
         
-        for (var s = 0; s < targetSheets.length; s++) {
-          var sheetMhs = ss.getSheetByName(targetSheets[s]);
-          if (sheetMhs) {
-            var dataMhs = sheetMhs.getDataRange().getValues();
-            for (var i = 1; i < dataMhs.length; i++) {
-              if (String(dataMhs[i][0]).trim() === noCoin) {
-                namaMhs = String(dataMhs[i][1]).trim();
-                nimMhs = String(dataMhs[i][2] || "-").trim(); // NIM di kolom C
+        // Fungsi pencarian
+        function searchStudent(sheetsToSearch) {
+          for (var s = 0; s < sheetsToSearch.length; s++) {
+            var sheetMhs = ss.getSheetByName(sheetsToSearch[s]);
+            if (sheetMhs) {
+              var dataMhs = sheetMhs.getDataRange().getValues();
+              for (var i = 1; i < dataMhs.length; i++) {
+                var cellVal = String(dataMhs[i][0]).trim();
                 
-                // Set tingkat sesuai nama sheet
-                if (targetSheets[s].indexOf("Tk.1") !== -1) tingkatMhs = "Tk.1";
-                else if (targetSheets[s].indexOf("Tk.2") !== -1) tingkatMhs = "Tk.2";
-                else if (targetSheets[s].indexOf("Tk.3") !== -1) tingkatMhs = "Tk.3";
-                else if (targetSheets[s].indexOf("Tk.4") !== -1) tingkatMhs = "Tk.4";
-                break;
+                if (normalizeCoin(cellVal) === normalizedIncomingCoin) {
+                  var nm = String(dataMhs[i][1]).trim();
+                  var nim = String(dataMhs[i][2] || "-").trim();
+                  var tk = "";
+                  if (sheetsToSearch[s].indexOf("Tk.1") !== -1) tk = "Tk.1";
+                  else if (sheetsToSearch[s].indexOf("Tk.2") !== -1) tk = "Tk.2";
+                  else if (sheetsToSearch[s].indexOf("Tk.3") !== -1) tk = "Tk.3";
+                  else if (sheetsToSearch[s].indexOf("Tk.4") !== -1) tk = "Tk.4";
+                  
+                  return { nama: nm, nim: nim, tingkat: tk };
+                }
               }
             }
           }
-          if (namaMhs) break;
+          return null;
         }
         
-        if (!namaMhs) {
+        // 1. Coba cari di sheet yang ditebak oleh Memori
+        var result = searchStudent(primarySheets);
+        
+        // 2. JARING PENGAMAN (FALLBACK): Jika tidak ketemu, berarti simbol pindah angkatan! Cari di sheet sisanya.
+        if (!result && targetSheetName) {
+          var otherSheets = ["Data_Mahasiswa Tk.1", "Data_Mahasiswa Tk.2", "Data_Mahasiswa Tk.3", "Data_Mahasiswa Tk.4"].filter(function(sh) { return sh !== targetSheetName; });
+          result = searchStudent(otherSheets);
+          
+          if (result) {
+            // Karena ketemu di tempat baru, RESET MEMORI detik ini juga!
+            buildSymbolMap(ss);
+          }
+        }
+        
+        if (!result) {
           return ContentService.createTextOutput(JSON.stringify({
             "status": "error", 
             "message": "Koin tidak valid. Data mahasiswa tidak ditemukan."
           })).setMimeType(ContentService.MimeType.JSON);
         }
+        
+        namaMhs = result.nama;
+        nimMhs = result.nim;
+        tingkatMhs = result.tingkat;
         namaLengkapDenganTingkat = namaMhs + " (" + tingkatMhs + ")";
       }
       

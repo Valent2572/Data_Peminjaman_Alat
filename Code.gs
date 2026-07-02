@@ -272,7 +272,16 @@ function doGet(e) {
       
       return ContentService.createTextOutput(JSON.stringify({
         "status": "success", 
-        "message": "Data peminjaman berhasil ditambahkan"
+        "message": "Data peminjaman berhasil ditambahkan",
+        "data": {
+          "timestamp_pinjam": timestamp,
+          "no_coin": noCoin,
+          "nama": namaLengkapDenganTingkat,
+          "nim": nimMhs || "-",
+          "kode_alat": kodeAlat,
+          "nama_alat": namaDetilAlat,
+          "status": status
+        }
       })).setMimeType(ContentService.MimeType.JSON);
     }
     

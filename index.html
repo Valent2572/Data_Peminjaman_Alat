@@ -283,6 +283,35 @@
         </div>
     </div>
 
+    <!-- Modal Success Popup (Auto-Close) -->
+    <div id="successPopupModal" class="modal-overlay">
+        <div class="modal-content !max-w-md">
+            <div class="modal-header border-b-emerald-500/30">
+                <div class="flex items-center gap-3">
+                    <div class="p-2 bg-emerald-500/20 rounded-lg text-emerald-400">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                        </svg>
+                    </div>
+                    <h2 class="text-xl font-bold text-emerald-400">Berhasil Dipinjam!</h2>
+                </div>
+                <button id="closeSuccessPopupBtn" class="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-slate-700 transition-colors">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="loan-card !border-emerald-500/30 !bg-emerald-900/10 mb-0" id="successPopupData">
+                    <!-- Data injected here -->
+                </div>
+                <div class="mt-4 text-center text-xs text-slate-500">
+                    Menutup otomatis dalam <span id="successPopupCountdown">3</span> detik...
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script>
         // MASUKKAN URL WEBHOOK GOOGLE APPS SCRIPT ANDA DI BAWAH INI
         const GAS_WEBHOOK_URL = 'https://script.google.com/macros/s/AKfycbwgkp2rU1AQg4ONWRpkzTStw_gI_4qJrPmomhj6z6YU548S1PuCGhvXUlZNNHpg4ho/exec'; 
@@ -446,6 +475,12 @@
                     showToast('Peminjaman berhasil dicatat!', 'success');
                     form.reset();
                     document.getElementById('coin_number').focus();
+                    
+                    // Tampilkan Popup Data Peminjaman
+                    if (result.data) {
+                        showSuccessPopup(result.data);
+                    }
+                    
                     // Curi start: update data latar belakang setelah meminjam
                     setTimeout(() => fetchActiveLoans(true), 1000);
                 } else {
@@ -468,6 +503,66 @@
         const refreshModalBtn = document.getElementById('refreshModalBtn');
         const activeLoansModal = document.getElementById('activeLoansModal');
         const modalBody = document.getElementById('modalBody');
+        
+        // Success Popup variables
+        const successPopupModal = document.getElementById('successPopupModal');
+        const closeSuccessPopupBtn = document.getElementById('closeSuccessPopupBtn');
+        const successPopupData = document.getElementById('successPopupData');
+        const successPopupCountdown = document.getElementById('successPopupCountdown');
+        let popupTimer = null;
+        let countdownTimer = null;
+
+        function showSuccessPopup(data) {
+            successPopupData.innerHTML = `
+                <div class="flex justify-between items-start mb-3">
+                    <h3 class="font-bold text-emerald-400 text-lg flex items-center gap-2">
+                        <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                        ${data.nama_alat}
+                    </h3>
+                </div>
+                <div class="grid grid-cols-[90px_1fr] gap-x-2 gap-y-2 items-center text-sm">
+                    <span class="text-slate-400">Peminjam</span>
+                    <span class="font-medium text-white">${data.nama}</span>
+                    
+                    <span class="text-slate-400">No Koin</span>
+                    <span class="font-medium text-emerald-400">${data.no_coin}</span>
+                    
+                    <span class="text-slate-400">NIM</span>
+                    <span class="font-medium text-white">${data.nim || '-'}</span>
+                    
+                    <span class="text-slate-400">Waktu</span>
+                    <span class="font-medium text-white">${data.timestamp_pinjam}</span>
+                </div>
+            `;
+            
+            successPopupModal.classList.add('active');
+            let seconds = 3;
+            successPopupCountdown.textContent = seconds;
+            
+            clearInterval(countdownTimer);
+            clearTimeout(popupTimer);
+            
+            countdownTimer = setInterval(() => {
+                seconds--;
+                if (seconds >= 0) successPopupCountdown.textContent = seconds;
+            }, 1000);
+            
+            popupTimer = setTimeout(() => {
+                closeSuccessPopup();
+            }, 3000);
+        }
+        
+        function closeSuccessPopup() {
+            successPopupModal.classList.remove('active');
+            clearInterval(countdownTimer);
+            clearTimeout(popupTimer);
+        }
+        
+        closeSuccessPopupBtn.addEventListener('click', closeSuccessPopup);
+        
+        successPopupModal.addEventListener('click', (e) => {
+            if (e.target === successPopupModal) closeSuccessPopup();
+        });
 
         openMenuBtn.addEventListener('click', () => {
             activeLoansModal.classList.add('active');

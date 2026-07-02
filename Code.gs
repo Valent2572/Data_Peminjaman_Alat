@@ -345,6 +345,48 @@ function doGet(e) {
     }
     
     // ==========================================
+    // ACTION: LOGIN
+    // ==========================================
+    else if (action === "login") {
+      var username = String(e.parameter.username).trim();
+      var password = String(e.parameter.password).trim();
+      
+      var sheetPW = ss.getSheetByName("PW");
+      if (!sheetPW) {
+        return ContentService.createTextOutput(JSON.stringify({
+          "status": "error", 
+          "message": "Sistem Error: Sheet 'PW' tidak ditemukan."
+        })).setMimeType(ContentService.MimeType.JSON);
+      }
+      
+      var dataPW = sheetPW.getDataRange().getValues();
+      var isSuccess = false;
+      
+      // Pencarian kebal header: loop dari baris terakhir sampai awal
+      for (var i = dataPW.length - 1; i >= 0; i--) {
+        var rowUser = String(dataPW[i][0]).trim();
+        var rowPass = String(dataPW[i][1]).trim();
+        
+        if (rowUser === username && rowPass === password) {
+          isSuccess = true;
+          break;
+        }
+      }
+      
+      if (isSuccess) {
+        return ContentService.createTextOutput(JSON.stringify({
+          "status": "success", 
+          "message": "Login berhasil"
+        })).setMimeType(ContentService.MimeType.JSON);
+      } else {
+        return ContentService.createTextOutput(JSON.stringify({
+          "status": "error", 
+          "message": "Username atau Password salah!"
+        })).setMimeType(ContentService.MimeType.JSON);
+      }
+    }
+    
+    // ==========================================
     // ACTION: AMBIL DATA (DEFAULT)
     // ==========================================
     else {
